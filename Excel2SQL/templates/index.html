@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel数据分析工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #38a169;
+        }
+        
+        .btn-info {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .btn-info:hover {
+            background: #3182ce;
+        }
+        
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            background: #f7fafc;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #edf2f7;
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e6f7ff;
+        }
+        
+        .file-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e6fffa;
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .result-section {
+            margin-top: 20px;
+        }
+        
+        .sql-box {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .sql-box pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 20px;
+        }
+        
+        .tab-button {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #718096;
+            transition: all 0.3s;
+        }
+        
+        .tab-button.active {
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            margin-bottom: -2px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .copy-btn {
+            margin-top: 10px;
+            padding: 5px 10px;
+            background: #48bb78;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .copy-btn:hover {
+            background: #38a169;
+        }
+        
+        .schema-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .schema-table th,
+        .schema-table td {
+            border: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        .schema-table th {
+            background: #f7fafc;
+            font-weight: bold;
+        }
+        
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+        
+        .alert-error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>📊 Excel数据分析工具</h1>
+                <p>上传Excel文件，自动生成数据库DDL和DML语句</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <a href="/download-template" class="btn btn-primary" download>
+                    📥 下载Excel模板
+                </a>
+            </div>
+            
+            <div class="upload-area" id="uploadArea">
+                <div>📁 点击或拖拽上传Excel文件</div>
+                <div style="font-size: 12px; color: #718096; margin-top: 10px;">
+                    支持 .xlsx 和 .xls 格式
+                </div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+            </div>
+            
+            <div class="file-info" id="fileInfo">
+                <strong>已选择文件：</strong> <span id="fileName"></span>
+                <button class="btn btn-success" id="uploadBtn" style="margin-left: 10px;">
+                    开始分析
+                </button>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 10px;">正在分析中...</p>
+            </div>
+            
+            <div class="result-section" id="resultSection" style="display: none;">
+                <div class="tab-buttons">
+                    <button class="tab-button active" data-tab="ddl">DDL语句</button>
+                    <button class="tab-button" data-tab="dml">DML语句</button>
+                    <button class="tab-button" data-tab="schema">表结构</button>
+                </div>
+                
+                <div id="ddl" class="tab-content active">
+                    <h3>建表语句 (DDL)</h3>
+                    <div class="sql-box">
+                        <pre id="ddlContent"></pre>
+                    </div>
+                    <button class="copy-btn" onclick="copyToClipboard('ddlContent')">复制DDL</button>
+                </div>
+                
+                <div id="dml" class="tab-content">
+                    <h3>数据插入语句 (DML)</h3>
+                    <div class="sql-box">
+                        <pre id="dmlContent"></pre>
+                    </div>
+                    <button class="copy-btn" onclick="copyToClipboard('dmlContent')">复制DML</button>
+                </div>
+                
+                <div id="schema" class="tab-content">
+                    <h3>表结构信息</h3>
+                    <div id="schemaContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const loading = document.getElementById('loading');
+        const resultSection = document.getElementById('resultSection');
+        
+        let selectedFile = null;
+        
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+        
+        function handleFileSelect(file) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext !== 'xlsx' && ext !== 'xls') {
+                showError('请选择Excel文件(.xlsx或.xls格式)');
+                return;
+            }
+            
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileInfo.style.display = 'block';
+        }
+        
+        uploadBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            
+            const formData = new FormData();
+            formData.append('excel_file', selectedFile);
+            
+            loading.style.display = 'block';
+            resultSection.style.display = 'none';
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayResult(result);
+                } else {
+                    showError(result.message);
+                }
+            } catch (error) {
+                showError('上传失败：' + error.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+        
+        function displayResult(result) {
+            // 显示DDL
+            const ddlContent = document.getElementById('ddlContent');
+            ddlContent.textContent = result.ddl.join('\n\n');
+            
+            // 显示DML
+            const dmlContent = document.getElementById('dmlContent');
+            dmlContent.textContent = result.dml.join('\n');
+            
+            // 显示表结构
+            if (result.table_schema) {
+                const schema = result.table_schema;
+                let html = `<table class="schema-table">
+                    <thead>
+                        <tr>
+                            <th>字段名</th>
+                            <th>数据类型</th>
+                            <th>长度</th>
+                            <th>是否可为空</th>
+                            <th>是否主键</th>
+                            <th>默认值</th>
+                            <th>说明</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+                
+                for (const col of schema.columns) {
+                    html += `<tr>
+                        <td>${col.Name}</td>
+                        <td>${col.DataType}</td>
+                        <td>${col.Length || '-'}</td>
+                        <td>${col.IsNullable ? '是' : '否'}</td>
+                        <td>${col.IsPrimaryKey ? '是' : '否'}</td>
+                        <td>${col.DefaultValue || '-'}</td>
+                        <td>${col.Comment || '-'}</td>
+                    </tr>`;
+                }
+                
+                html += `</tbody></table>`;
+                document.getElementById('schemaContent').innerHTML = html;
+            }
+            
+            resultSection.style.display = 'block';
+            
+            // 显示成功消息
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success';
+            alert.textContent = result.message;
+            document.querySelector('.card').insertBefore(alert, resultSection);
+            setTimeout(() => alert.remove(), 3000);
+        }
+        
+        function showError(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-error';
+            alert.textContent = message;
+            document.querySelector('.card').insertBefore(alert, fileInfo);
+            setTimeout(() => alert.remove(), 3000);
+        }
+        
+        function copyToClipboard(elementId) {
+            const content = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                alert('已复制到剪贴板');
+            }).catch(() => {
+                alert('复制失败，请手动复制');
+            });
+        }
+        
+        // Tab切换
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+                
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                button.classList.add('active');
+                
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(tabName).classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
