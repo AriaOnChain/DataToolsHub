@@ -57,11 +57,12 @@ type JoinInfo struct {
 
 // GenerateResult 生成结果
 type GenerateResult struct {
-	Success    bool     `json:"success"`
-	Message    string   `json:"message"`
-	DDL        []string `json:"ddl,omitempty"`
-	DML        []string `json:"dml,omitempty"`
-	TableNames []string `json:"table_names,omitempty"`
+	Success      bool              `json:"success"`
+	Message      string            `json:"message"`
+	DDL          []string          `json:"ddl,omitempty"`
+	DML          []string          `json:"dml,omitempty"`
+	TableNames   []string          `json:"table_names,omitempty"`
+	DownloadURLs map[string]string `json:"download_urls,omitempty"`
 }
 
 func main() {
@@ -145,11 +146,11 @@ func downloadMappingTemplate(c *gin.Context) {
 
 	// 添加字段映射示例数据
 	mappingExamples := [][]interface{}{
-		{"主键", "user_id", "bigint", "用户ID", "ods_user", "id", "", "", "", "是", ""},
-		{"基本信息", "user_name", "string", "用户名", "ods_user", "name", "", "", "", "", ""},
-		{"基本信息", "age", "int", "年龄", "ods_user", "age", "", "", "", "", "age > 0"},
-		{"扩展信息", "user_level", "string", "用户等级", "ods_user_ext", "level", "", "ods_user.id = ods_user_ext.user_id", "", "", ""},
-		{"派生字段", "age_group", "string", "年龄段", "", "", "case when age < 18 then '未成年' when age < 60 then '成年' else '老年' end", "", "", "", ""},
+		{"user_id", "bigint", "用户ID", "是", "", "ods_user", "id", "", "", "", "", ""},
+		{"user_name", "string", "用户名", "", "", "ods_user", "name", "", "", "", "", ""},
+		{"age", "int", "年龄", "", "", "ods_user", "age", "", "", "", "", "age > 0"},
+		{"user_level", "string", "用户等级", "", "", "ods_user_ext", "level", "", "", "ods_user.id = ods_user_ext.user_id", "", ""},
+		{"age_group", "string", "年龄段", "", "", "", "", "", "case when age < 18 then '未成年' when age < 60 then '成年' else '老年' end", "", "", ""},
 	}
 
 	for row, example := range mappingExamples {
@@ -177,20 +178,18 @@ func downloadMappingTemplate(c *gin.Context) {
 		{"   - 字段名称", "目标表的字段名"},
 		{"   - 数据类型", "Hive支持的数据类型（bigint, string, int, decimal等）"},
 		{"   - 字段描述", "字段注释"},
+		{"   - 是否主键", "标记主表（填'是'）"},
 		{"   - 来源表", "数据来源表名"},
 		{"   - 来源字段英文名", "来源表的字段名"},
-		{"   - 字段逻辑", "字段转换逻辑说明（仅用于注释）"},
 		{"   - 关联逻辑", "多表关联的ON条件"},
 		{"   - 映射逻辑", "复杂的字段映射表达式（优先级高于来源字段）"},
-		{"   - 是否主键", "标记主表（填'是'）"},
 		{"   - 过滤条件", "WHERE条件，会与其他条件用AND连接"},
 		{"", ""},
 		{"⚠️ 注意事项", ""},
 		{"• 表目录中的表中文描述必须与字段映射的工作表名称完全一致"},
 		{"• 至少有一个字段标记为是否主键='是'，用于确定主表"},
-		{"• 关联逻辑格式示例: t1.id = t2.user_id（会进行表名替换）"},
+		{"• 关联逻辑格式示例: t1.id = t2.user_id"},
 		{"• 映射逻辑优先级高于来源表+来源字段"},
-		{"• 支持 ${TX_DATE} 变量作为分区参数"},
 	}
 
 	for row, instruction := range instructions {
@@ -202,7 +201,7 @@ func downloadMappingTemplate(c *gin.Context) {
 
 	// 设置列宽
 	f.SetColWidth(dirSheet, "A", "E", 20)
-	f.SetColWidth(mappingSheet, "A", "K", 18)
+	f.SetColWidth(mappingSheet, "A", "L", 18)
 	f.SetColWidth(instructionSheet, "A", "B", 30)
 
 	// 设置默认工作表
@@ -314,6 +313,9 @@ func processMappingFile(filePath string) (*GenerateResult, error) {
 		return nil, fmt.Errorf("创建输出目录失败: %v", err)
 	}
 
+	timestamp := time.Now().Format("20060102_150405")
+	var ddlFile, dmlFile string
+
 	for _, sheetName := range sheetList {
 		if sheetName == DefaultDirectorySheet || sheetName == "填写说明" {
 			continue
@@ -335,6 +337,7 @@ func processMappingFile(filePath string) (*GenerateResult, error) {
 		// 获取表元数据
 		tableMeta, ok := tableDir[sheetName]
 		if !ok || tableMeta.TableName == "" {
+			log.Printf("警告: 表 %s 未在目录中定义", sheetName)
 			continue
 		}
 
@@ -358,9 +361,8 @@ func processMappingFile(filePath string) (*GenerateResult, error) {
 	}
 
 	// 保存到文件
-	timestamp := time.Now().Format("20060102_150405")
-	ddlFile := filepath.Join(outputDir, fmt.Sprintf("ddl_%s.sql", timestamp))
-	dmlFile := filepath.Join(outputDir, fmt.Sprintf("dml_%s.sql", timestamp))
+	ddlFile = filepath.Join(outputDir, fmt.Sprintf("ddl_%s.sql", timestamp))
+	dmlFile = filepath.Join(outputDir, fmt.Sprintf("dml_%s.sql", timestamp))
 
 	if err := WriteOutput(ddlFile, strings.Join(allDDL, "\n\n\n")); err != nil {
 		return nil, fmt.Errorf("保存DDL文件失败: %v", err)
@@ -372,10 +374,14 @@ func processMappingFile(filePath string) (*GenerateResult, error) {
 
 	return &GenerateResult{
 		Success:    true,
-		Message:    fmt.Sprintf("成功生成 %d 张表的SQL语句", len(tableNames)),
+		Message:    fmt.Sprintf("成功生成 %d 张表的SQL语句，请在本地generated目录下查看或点击下载", len(tableNames)),
 		DDL:        []string{fmt.Sprintf("/download/%s", filepath.Base(ddlFile))},
 		DML:        []string{fmt.Sprintf("/download/%s", filepath.Base(dmlFile))},
 		TableNames: tableNames,
+		DownloadURLs: map[string]string{
+			"ddl": fmt.Sprintf("/download/%s", filepath.Base(ddlFile)),
+			"dml": fmt.Sprintf("/download/%s", filepath.Base(dmlFile)),
+		},
 	}, nil
 }
 
@@ -383,17 +389,17 @@ func processMappingFile(filePath string) (*GenerateResult, error) {
 func LoadTableDirectory(filePath string) (map[string]*TableMeta, error) {
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("无法打开文件，请确认文件没有损坏")
 	}
 	defer f.Close()
 
 	rows, err := f.GetRows(DefaultDirectorySheet)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取【%s】工作表失败，请检查文件格式是否正确", DefaultDirectorySheet)
 	}
 
 	if len(rows) < 2 {
-		return nil, fmt.Errorf("目录表数据为空")
+		return nil, fmt.Errorf("%s工作表中没有数据", DefaultDirectorySheet)
 	}
 
 	// 获取表头
@@ -401,6 +407,23 @@ func LoadTableDirectory(filePath string) (map[string]*TableMeta, error) {
 	colIndex := make(map[string]int)
 	for i, header := range headers {
 		colIndex[NormalizeCell(header)] = i
+	}
+
+	requiredColumns := []string{"表中文描述", "表英文名称"}
+
+	var missingRequired []string
+	for _, col := range requiredColumns {
+		if _, ok := colIndex[col]; !ok {
+			missingRequired = append(missingRequired, col)
+		}
+	}
+
+	if len(missingRequired) > 0 {
+		return nil, fmt.Errorf(
+			"【%s】工作表缺少必须列：%s",
+			DefaultDirectorySheet,
+			strings.Join(missingRequired, "、"),
+		)
 	}
 
 	tableDir := make(map[string]*TableMeta)
@@ -533,7 +556,7 @@ func DetectMappingHeaderRow(filePath, sheetName string, scanRows int) (int, erro
 		}
 	}
 
-	if bestScore >= 3 {
+	if bestScore >= 2 {
 		return bestRow, nil
 	}
 	return -1, nil
@@ -755,7 +778,9 @@ func GenerateDDL(tableMeta *TableMeta, mappings []FieldMapping) string {
 
 	var columnLines []string
 	for _, m := range mappings {
-		columnLines = append(columnLines, BuildColumnDefinition(m))
+		if NormalizeCell(m.FieldName) != "" {
+			columnLines = append(columnLines, BuildColumnDefinition(m))
+		}
 	}
 
 	ddlLines := []string{
@@ -801,7 +826,13 @@ func GenerateDML(tableMeta *TableMeta, mappings []FieldMapping) (string, error) 
 
 	var selectLines []string
 	for _, m := range mappings {
-		selectLines = append(selectLines, "    "+BuildSelectExpression(m, baseTable, joinAliasMap, tableAliasReplacements))
+		if NormalizeCell(m.FieldName) != "" {
+			selectLines = append(selectLines, "    "+BuildSelectExpression(m, baseTable, joinAliasMap, tableAliasReplacements))
+		}
+	}
+
+	if len(selectLines) == 0 {
+		return "", fmt.Errorf("没有有效的字段定义")
 	}
 
 	filterConditions := CollectFilterConditions(mappings, tableAliasReplacements, partitionField)
@@ -819,9 +850,10 @@ func GenerateDML(tableMeta *TableMeta, mappings []FieldMapping) (string, error) 
 
 	for _, joinInfo := range joinInfos {
 		joinCondition := joinInfo.JoinLogic
-		if joinCondition == "" || joinCondition == "-" {
+		if joinCondition == "" || IsPlaceholder(joinCondition) {
 			joinCondition = "1=1"
 		}
+		joinCondition = ReplaceTableReferences(joinCondition, tableAliasReplacements)
 		dmlLines = append(dmlLines, fmt.Sprintf("LEFT JOIN %s %s ON %s", joinInfo.SourceTable, joinInfo.Alias, joinCondition))
 	}
 

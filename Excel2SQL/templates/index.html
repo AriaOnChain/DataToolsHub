@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel数据分析工具</title>
+    <title>Hive表结构生成工具</title>
     <style>
         * {
             margin: 0;
@@ -125,6 +125,8 @@
             margin-top: 10px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
+            max-height: 500px;
+            overflow-y: auto;
         }
         
         .sql-box pre {
@@ -218,11 +220,24 @@
         }
         
         .alert {
-            padding: 12px;
+            padding: 12px 20px;
             border-radius: 6px;
             margin-bottom: 20px;
+            position: relative;
+            animation: slideIn 0.3s ease-out;
         }
         
+        @keyframes slideIn {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
         .alert-success {
             background: #c6f6d5;
             color: #22543d;
@@ -234,18 +249,52 @@
             color: #742a2a;
             border: 1px solid #fc8181;
         }
+        
+        .alert-close {
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .alert-close:hover {
+            opacity: 1;
+        }
+
+        .download-links {
+            margin-top: 20px;
+            padding: 15px;
+            background: #ebf8ff;
+            border-radius: 6px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        .download-links a {
+            color: #3182ce;
+            text-decoration: none;
+        }
+        
+        .download-links a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="card">
             <div class="header">
-                <h1>📊 Excel数据分析工具</h1>
-                <p>上传Excel文件，自动生成数据库DDL和DML语句</p>
+                <h1>📊 Hive表结构生成工具</h1>
+                <p>上传Excel映射文件，自动生成Hive建表和插入语句</p>
             </div>
             
             <div style="margin-bottom: 20px;">
-                <a href="/download-template" class="btn btn-primary" download>
+                <a href="/download-template" class="btn btn-primary">
                     📥 下载Excel模板
                 </a>
             </div>
@@ -361,6 +410,10 @@
             loading.style.display = 'block';
             resultSection.style.display = 'none';
             
+            // 清除之前的alert
+            const oldAlerts = document.querySelectorAll('.alert');
+            oldAlerts.forEach(alert => alert.remove());
+            
             try {
                 const response = await fetch('/upload', {
                     method: 'POST',
@@ -371,6 +424,7 @@
                 
                 if (result.success) {
                     displayResult(result);
+                    showSuccess(result.message);
                 } else {
                     showError(result.message);
                 }
@@ -381,68 +435,194 @@
             }
         });
         
-        function displayResult(result) {
-            // 显示DDL
+        // 获取SQL内容（支持URL或直接内容）
+        async function getSQLContent(urlOrContent) {
+            // 如果是URL（以/download/开头）
+            if (typeof urlOrContent === 'string' && urlOrContent.startsWith('/download/')) {
+                try {
+                    const response = await fetch(urlOrContent);
+                    if (response.ok) {
+                        return await response.text();
+                    } else {
+                        return `无法加载SQL内容: ${response.statusText}`;
+                    }
+                } catch (error) {
+                    return `加载失败: ${error.message}`;
+                }
+            }
+            return urlOrContent || '';
+        }
+        
+        async function displayResult(result) {
+            // 获取DDL内容
+            let ddlText = '';
+            if (result.ddl && result.ddl.length > 0) {
+                for (const item of result.ddl) {
+                    const content = await getSQLContent(item);
+                    ddlText += content + '\n\n';
+                }
+            }
+            
+            // 获取DML内容
+            let dmlText = '';
+            if (result.dml && result.dml.length > 0) {
+                for (const item of result.dml) {
+                    const content = await getSQLContent(item);
+                    dmlText += content + '\n\n';
+                }
+            }
+            
             const ddlContent = document.getElementById('ddlContent');
-            ddlContent.textContent = result.ddl.join('\n\n');
+            ddlContent.textContent = ddlText.trim();
             
-            // 显示DML
             const dmlContent = document.getElementById('dmlContent');
-            dmlContent.textContent = result.dml.join('\n');
+            dmlContent.textContent = dmlText.trim();
             
-            // 显示表结构
-            if (result.table_schema) {
-                const schema = result.table_schema;
-                let html = `<table class="schema-table">
-                    <thead>
-                        <tr>
-                            <th>字段名</th>
-                            <th>数据类型</th>
-                            <th>长度</th>
-                            <th>是否可为空</th>
-                            <th>是否主键</th>
-                            <th>默认值</th>
-                            <th>说明</th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-                
-                for (const col of schema.columns) {
+            // 显示表结构（如果有表名信息）
+            if (result.table_names && result.table_names.length > 0) {
+                let html = '<div style="overflow-x: auto;">';
+                html += '<table class="schema-table">';
+                html += '<thead><tr><th>序号</th><th>表名</th><th>状态</th></tr></thead>';
+                html += '<tbody>';
+                result.table_names.forEach((name, idx) => {
                     html += `<tr>
-                        <td>${col.Name}</td>
-                        <td>${col.DataType}</td>
-                        <td>${col.Length || '-'}</td>
-                        <td>${col.IsNullable ? '是' : '否'}</td>
-                        <td>${col.IsPrimaryKey ? '是' : '否'}</td>
-                        <td>${col.DefaultValue || '-'}</td>
-                        <td>${col.Comment || '-'}</td>
+                        <td>${idx + 1}</td>
+                        <td><code>${escapeHtml(name)}</code></td>
+                        <td style="color: #48bb78;">✓ 已生成</td>
                     </tr>`;
+                });
+                html += '</tbody></table>';
+                
+                // 添加下载链接
+                if (result.download_urls) {
+                    html += '<div class="download-links">';
+                    if (result.download_urls.ddl) {
+                        html += `<a href="${result.download_urls.ddl}" class="btn btn-info" download>📄 下载DDL文件</a>`;
+                    }
+                    if (result.download_urls.dml) {
+                        html += `<a href="${result.download_urls.dml}" class="btn btn-info" download>📄 下载DML文件</a>`;
+                    }
+                    html += '</div>';
                 }
                 
-                html += `</tbody></table>`;
+                html += '</div>';
                 document.getElementById('schemaContent').innerHTML = html;
+            } else {
+                document.getElementById('schemaContent').innerHTML = '<p>✅ SQL生成成功，请查看DDL和DML标签页</p>';
             }
             
             resultSection.style.display = 'block';
-            
-            // 显示成功消息
-            const alert = document.createElement('div');
-            alert.className = 'alert alert-success';
-            alert.textContent = result.message;
-            document.querySelector('.card').insertBefore(alert, resultSection);
-            setTimeout(() => alert.remove(), 3000);
         }
         
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        let currentAlert = null;
+        let alertTimeout = null;
+
+        function showSuccess(message) {
+            // 清除之前的alert
+            clearAlert();
+            
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success';
+            alert.innerHTML = `
+                <span>✓ ${message}</span>
+                <button class="alert-close" style="float: right; background: none; border: none; color: inherit; cursor: pointer; font-size: 18px; font-weight: bold;">&times;</button>
+            `;
+            
+            // 添加关闭按钮功能
+            const closeBtn = alert.querySelector('.alert-close');
+            closeBtn.addEventListener('click', () => {
+                clearAlert();
+            });
+            
+            document.querySelector('.card').insertBefore(alert, resultSection);
+            currentAlert = alert;
+            
+            // 5秒后自动消失
+            alertTimeout = setTimeout(() => {
+                if (currentAlert) {
+                    currentAlert.style.opacity = '0';
+                    currentAlert.style.transition = 'opacity 0.5s';
+                    setTimeout(() => {
+                        if (currentAlert && currentAlert.remove) {
+                            currentAlert.remove();
+                            currentAlert = null;
+                        }
+                    }, 500);
+                }
+                alertTimeout = null;
+            }, 5000);
+        }
+                
         function showError(message) {
+            // 清除之前的alert
+            clearAlert();
+            
             const alert = document.createElement('div');
             alert.className = 'alert alert-error';
-            alert.textContent = message;
-            document.querySelector('.card').insertBefore(alert, fileInfo);
-            setTimeout(() => alert.remove(), 3000);
+            alert.style.cursor = 'pointer';
+            alert.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>✗ ${message}</span>
+                    <button class="alert-close" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 18px; font-weight: bold; margin-left: 15px;">&times;</button>
+                </div>
+            `;
+            
+            // 添加关闭按钮功能
+            const closeBtn = alert.querySelector('.alert-close');
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                clearAlert();
+            });
+            
+            // 点击整个alert也可以关闭
+            alert.addEventListener('click', (e) => {
+                if (e.target !== closeBtn) {
+                    clearAlert();
+                }
+            });
+            
+            document.querySelector('.card').insertBefore(alert, fileInfo.nextSibling || fileInfo);
+            currentAlert = alert;
+            
+            // 50秒后自动消失（错误信息停留更久）
+            alertTimeout = setTimeout(() => {
+                if (currentAlert) {
+                    currentAlert.style.opacity = '0';
+                    currentAlert.style.transition = 'opacity 0.5s';
+                    setTimeout(() => {
+                        if (currentAlert && currentAlert.remove) {
+                            currentAlert.remove();
+                            currentAlert = null;
+                        }
+                    }, 500);
+                }
+                alertTimeout = null;
+            }, 500000);
+        }
+
+        function clearAlert() {
+            if (alertTimeout) {
+                clearTimeout(alertTimeout);
+                alertTimeout = null;
+            }
+            if (currentAlert) {
+                currentAlert.remove();
+                currentAlert = null;
+            }
         }
         
         function copyToClipboard(elementId) {
             const content = document.getElementById(elementId).textContent;
+            if (!content || content.trim() === '') {
+                alert('没有可复制的内容');
+                return;
+            }
             navigator.clipboard.writeText(content).then(() => {
                 alert('已复制到剪贴板');
             }).catch(() => {
